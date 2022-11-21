@@ -30,6 +30,24 @@ builder.Services.AddGraphQLServer()
     .AddQueryType<QueryResolver>()
     .AddMutationType<MutationResolver>()
     .AddAuthorization();
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("roles-policy", policy =>
+    {
+        policy.RequireRole(new string[] { "admin", "loco" });
+    });
+
+    options.AddPolicy("claim-policy-1", policy =>
+    {
+        policy.RequireClaim("LastName");
+    });
+
+    options.AddPolicy("claim-policy-2", policy =>
+    {
+        policy.RequireClaim("LastName", new string[] { "Bommidi", "Test", "lamar" });
+    });
+});
     
 builder.Services.AddControllers();
 builder.Services.AddDbContext<AuthContext>(options =>

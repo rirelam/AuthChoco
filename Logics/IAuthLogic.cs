@@ -1,10 +1,12 @@
 using AuthChoco.InputTypes;
+using AuthChoco.Models;
 
 namespace AuthChoco.Logics
 {
     public interface IAuthLogic
     {
         string Register(RegisterInputType registerInput);
-        string Login(LoginInputType loginInput);
+        TokenResponseModel Login(LoginInputType loginInput);
+        TokenResponseModel RenewAccessToken(RenewTokenInputType renewToken);
     }
 }

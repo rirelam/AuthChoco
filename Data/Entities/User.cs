@@ -11,6 +11,6 @@ namespace AuthChoco.Data.Entities
         public string? EmailAddress { get; set; }
         public string? Password { get; set; }
         public string? RefreshToken { get; set; }
-        public string? RefershTokenExpiration { get; set; }
+        public DateTime? RefershTokenExpiration { get; set; }
     }
 }

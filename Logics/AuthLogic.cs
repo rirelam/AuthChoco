@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using AuthChoco.Data;
 using AuthChoco.Data.Entities;
 using AuthChoco.InputTypes;
+using AuthChoco.Models;
 using AuthChoco.Shared;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -56,28 +57,84 @@ namespace AuthChoco.Logics
             return "Registration success";
         }
 
-        public string Login(LoginInputType loginInput)
+        public TokenResponseModel Login(LoginInputType loginInput)
         {
+            var result = new TokenResponseModel { Message = "Success" };
+
             if (string.IsNullOrEmpty(loginInput.Email)
             || string.IsNullOrEmpty(loginInput.Passowrd))
             {
-                return "Invalid Credentials";
+                result.Message = "Invalid Credentials";
+                return result;
             }
 
             var user = _authContext.User.Where(res => res.EmailAddress == loginInput.Email).FirstOrDefault();
             if (user == null)
             {
-                return "Invalid Credentials";
+                result.Message = "Invalid Credentials";
+                return result;
             }
 
             if (!ValidatePasswordHash(loginInput.Passowrd, user.Password))
             {
-                return "Invalid Credentials";
+                result.Message = "Invalid Credentials";
+                return result;
             }
 
             var roles = _authContext.UserRoles.Where(_ => _.UserId == user.UserId).ToList();
 
-            return GetJWTAuthKey(user, roles);
+            result.AccessToken = GetJWTAuthKey(user, roles);
+            result.RefreshToken = GenerateRefreshToken();
+
+            user.RefreshToken = result.RefreshToken;
+            user.RefershTokenExpiration = DateTime.Now.AddDays(7);
+            _authContext.SaveChanges();
+
+            return result;
+        }
+
+        public TokenResponseModel RenewAccessToken(RenewTokenInputType renewToken)
+        {
+            var result = new TokenResponseModel { Message = "Success" };
+
+            string? accessToken = renewToken.AccessToken;
+            ClaimsPrincipal? principal = GetClaimsFromExpiredToken(accessToken);
+
+            if (principal == null)
+            {
+                result.Message = "Invalid Token";
+                return result;
+            }
+
+            string? email = principal.Claims.Where(_ => _.Type == "Email").Select(_ => _.Value).FirstOrDefault();
+            
+            if (string.IsNullOrEmpty(email))
+            {
+                result.Message = "Invalid Token";
+                return result;
+            }
+
+            var user = _authContext.User
+            .Where(_ => _.EmailAddress == email && _.RefreshToken == renewToken.RefreshToken && _.RefershTokenExpiration > DateTime.Now).FirstOrDefault();
+            if (user == null)
+            {
+                result.Message = "Invalid Token";
+                return result;
+            }
+
+            var userRoles = _authContext.UserRoles.Where(_ => _.UserId == user.UserId).ToList();
+
+            result.AccessToken = GetJWTAuthKey(user, userRoles);
+
+            result.RefreshToken = GenerateRefreshToken();
+
+            user.RefreshToken = result.RefreshToken;
+            user.RefershTokenExpiration = DateTime.Now.AddDays(7);
+
+            _authContext.SaveChanges();
+
+            return result;
+
         }
 
         private static string ResgistrationValidations(RegisterInputType registerInput)
@@ -181,6 +238,42 @@ namespace AuthChoco.Logics
             );
 
             return new JwtSecurityTokenHandler().WriteToken(jwtSecurityToken);
+        }
+
+        private string GenerateRefreshToken()
+        {
+            var randomNumber = new byte[32];
+            using (var generator = RandomNumberGenerator.Create())
+            {
+                generator.GetBytes(randomNumber);
+                return Convert.ToBase64String(randomNumber);
+            }
+        }
+
+        private ClaimsPrincipal? GetClaimsFromExpiredToken(string? accessToken)
+        {
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                return null;
+            }
+            var tokenValidationParameter = new TokenValidationParameters
+            {
+                ValidIssuer = _tokenSettings.Issuer,
+                ValidateIssuer = true,
+                ValidAudience = _tokenSettings.Audience,
+                ValidateAudience = true,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_tokenSettings.Key)),
+                ValidateLifetime = false // ignore expiration
+            };
+
+            var jwtHandler = new JwtSecurityTokenHandler();
+            var principal = jwtHandler.ValidateToken(accessToken, tokenValidationParameter, out SecurityToken securityToken);
+            if (securityToken is not JwtSecurityToken)
+            {
+                return null;
+            }
+
+            return principal;
         }
 
     }
